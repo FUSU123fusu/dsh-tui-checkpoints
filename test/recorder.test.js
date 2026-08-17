@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
-import { createRecorder, listCheckpoints, readIndex } from '../lib/recorder.js'
+import { createRecorder, isMutatingTool, listCheckpoints, readIndex } from '../lib/recorder.js'
 
 const cleanups = []
 after(() => {
@@ -23,28 +23,59 @@ function makeRecorder(snapshot) {
   return { recorder, indexPath: join(dir, 'index.jsonl') }
 }
 
-const ev = (type, turn, seq) => ({ type, seq, time: 0, data: { turn } })
+const ev = (type, turn, seq, extra = {}) => ({ type, seq, time: 0, data: { turn, ...extra } })
 const main = { id: 'abc-def', header: { id: 'abc-def', delegationDepth: 0 } }
 // TUI-created main sessions carry no delegationDepth field at all.
 const mainNoDepth = { id: 'bare-uuid', header: { id: 'bare-uuid' } }
 const sub = { id: '95e33202-x', header: { id: '95e33202-x', delegationDepth: 1, origin: 'subagent' } }
 
+describe('isMutatingTool', () => {
+  it('known read-only tools do not count', () => {
+    assert.equal(isMutatingTool('read'), false)
+    assert.equal(isMutatingTool('glob'), false)
+    assert.equal(isMutatingTool('Grep'), false)
+  })
+  it('everything else counts, erring toward snapshots', () => {
+    assert.equal(isMutatingTool('write'), true)
+    assert.equal(isMutatingTool('bash'), true)
+    assert.equal(isMutatingTool('pwsh'), true)
+    assert.equal(isMutatingTool('mcp__whatever__thing'), true)
+    assert.equal(isMutatingTool(undefined), false)
+  })
+})
+
 describe('recorder', () => {
-  it('schedules snapshots only for top-level turn boundaries', async () => {
+  it('snapshots at turn/end only when a mutating tool ran', async () => {
     const { recorder, indexPath } = makeRecorder(async () => ({ hash: 'a'.repeat(40), changed: true }))
-    assert.equal(recorder.handle(main, ev('turn/start', 1, 0)), true)
-    assert.equal(recorder.handle(main, ev('turn/end', 1, 9)), true)
-    assert.equal(recorder.handle(main, ev('assistant/chunk', 1, 3)), false)
-    // Subagent sessions (delegationDepth ≥ 1 / origin subagent) never trigger.
-    assert.equal(recorder.handle(sub, ev('turn/start', 1, 0)), false)
-    assert.equal(recorder.handle(undefined, ev('turn/start', 1, 0)), false)
-    // A TUI-style main session without a depth field records fine.
-    assert.equal(recorder.handle(mainNoDepth, ev('turn/start', 9, 0)), true)
+    // Chat-only turn: no snapshot.
+    recorder.handle(main, ev('turn/start', 1, 0))
+    recorder.handle(main, ev('assistant/chunk', 1, 3))
+    recorder.handle(main, ev('turn/end', 1, 9))
+    // Turn with a read-only tool: still no snapshot.
+    recorder.handle(main, ev('turn/start', 2, 10))
+    recorder.handle(main, ev('tool/call', 2, 11, { name: 'read' }))
+    recorder.handle(main, ev('turn/end', 2, 19))
+    // Turn with a write: snapshot.
+    assert.equal(recorder.handle(main, ev('turn/start', 3, 20)), false)
+    recorder.handle(main, ev('tool/call', 3, 21, { name: 'write' }))
+    assert.equal(recorder.handle(main, ev('turn/end', 3, 29)), true)
+    // Subagent events never trigger.
+    recorder.handle(sub, ev('turn/start', 1, 0))
+    recorder.handle(sub, ev('tool/call', 1, 1, { name: 'write' }))
+    assert.equal(recorder.handle(sub, ev('turn/end', 1, 9)), false)
     await recorder.drain()
     const entries = readIndex(indexPath)
-    assert.deepEqual(entries.map((e) => e.kind), ['pre', 'post', 'pre'])
-    assert.deepEqual(entries.map((e) => e.turn), [1, 1, 9])
+    assert.deepEqual(entries.map((e) => [e.kind, e.turn]), [['post', 3]])
     assert.equal(entries[0].session, 'abc-def')
+  })
+
+  it('TUI-style main sessions (no depth field) record fine', async () => {
+    const { recorder, indexPath } = makeRecorder(async () => ({ hash: 'b'.repeat(40), changed: true }))
+    recorder.handle(mainNoDepth, ev('turn/start', 1, 0))
+    recorder.handle(mainNoDepth, ev('tool/call', 1, 1, { name: 'edit' }))
+    recorder.handle(mainNoDepth, ev('turn/end', 1, 9))
+    await recorder.drain()
+    assert.equal(readIndex(indexPath).length, 1)
   })
 
   it('serializes snapshots through the queue', async () => {
@@ -57,9 +88,11 @@ describe('recorder', () => {
       active--
       return { hash: 'b'.repeat(40), changed: true }
     })
-    recorder.handle(main, ev('turn/start', 1, 0))
-    recorder.handle(main, ev('turn/end', 1, 9))
-    recorder.handle(main, ev('turn/start', 2, 10))
+    for (let turn = 1; turn <= 3; turn++) {
+      recorder.handle(main, ev('turn/start', turn, 0))
+      recorder.handle(main, ev('tool/call', turn, 1, { name: 'write' }))
+      recorder.handle(main, ev('turn/end', turn, 9))
+    }
     await recorder.drain()
     assert.equal(maxActive, 1)
   })
@@ -71,8 +104,11 @@ describe('recorder', () => {
       if (n === 1) throw new Error('git exploded')
       return { hash: 'c'.repeat(40), changed: true }
     })
-    recorder.handle(main, ev('turn/start', 1, 0))
-    recorder.handle(main, ev('turn/end', 1, 9))
+    for (let turn = 1; turn <= 2; turn++) {
+      recorder.handle(main, ev('turn/start', turn, 0))
+      recorder.handle(main, ev('tool/call', turn, 1, { name: 'write' }))
+      recorder.handle(main, ev('turn/end', turn, 9))
+    }
     await recorder.drain()
     assert.equal(readIndex(indexPath).length, 1)
   })
@@ -84,7 +120,7 @@ describe('readIndex / listCheckpoints', () => {
     cleanups.push(dir)
     const indexPath = join(dir, 'index.jsonl')
     const { writeFileSync, appendFileSync } = await import('node:fs')
-    writeFileSync(indexPath, JSON.stringify({ hash: 'h1', turn: 1, kind: 'pre', at: 1, session: 's' }) + '\n')
+    writeFileSync(indexPath, JSON.stringify({ hash: 'h1', turn: 1, kind: 'post', at: 1, session: 's' }) + '\n')
     appendFileSync(indexPath, JSON.stringify({ hash: 'h2', turn: 1, kind: 'post', at: 2, session: 's' }) + '\n')
     appendFileSync(indexPath, '{"hash":"h3","tur')
     const entries = listCheckpoints(indexPath)
