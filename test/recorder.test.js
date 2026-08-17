@@ -95,3 +95,18 @@ describe('readIndex / listCheckpoints', () => {
     assert.deepEqual(readIndex('C:/no/such/file.jsonl'), [])
   })
 })
+
+describe('baseline', () => {
+  it('snapshots turn 0 once per session', async () => {
+    const { recorder, indexPath } = makeRecorder(async () => ({ hash: 'd'.repeat(40), changed: true }))
+    recorder.baseline('s-1')
+    recorder.baseline('s-1') // dedupe
+    recorder.baseline('s-2')
+    assert.equal(recorder.hasBaseline('s-1'), true)
+    assert.equal(recorder.hasBaseline('nope'), false)
+    await recorder.drain()
+    const entries = readIndex(indexPath)
+    assert.equal(entries.length, 2)
+    assert.ok(entries.every((e) => e.turn === 0 && e.kind === 'pre' && e.seq === 0))
+  })
+})
