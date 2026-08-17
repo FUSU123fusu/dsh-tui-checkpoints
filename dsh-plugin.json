@@ -1,32 +1,30 @@
 {
-  "$schema": "https://dsh.community/schemas/dsh-plugin-0.1.json",
+  "$schema": "https://dsh.community/schemas/dsh-plugin-0.15.json",
   "id": "dsh-tui-checkpoints",
   "name": "Checkpoints",
   "version": "0.1.0",
-  "manifestVersion": "0.1",
-  "apiVersion": "0.1",
-  "entry": "lib/index.js",
-  "requires": {
-    "capabilities": {
-      "required": [
-        {
-          "name": "commands",
-          "version": "0.1",
-          "schemaHash": "sha256:44fd09e55246deef61dae0f4d07b84ec88160201226d414b29d46fc759be75b1"
-        },
-        {
-          "name": "messages.observe",
-          "version": "0.1",
-          "schemaHash": "sha256:666030568d12b319d159a7c1d3b60df883ac2142fe4699d60b3e780c8a3f9286"
-        },
-        {
-          "name": "storage.local",
-          "version": "0.1",
-          "schemaHash": "sha256:0825964a6fa23ce8a536c3c4c649c58a174c2984f27cabda9fea9d72fe88bf2f"
-        }
-      ],
-      "optional": []
+  "manifestVersion": "0.15",
+  "facets": {
+    "host": {
+      "entry": "lib/index.js",
+      "apiVersion": "v1alpha1"
     }
+  },
+  "requires": {
+    "contracts": [
+      {
+        "apiVersion": "commands.dsh/v1alpha1",
+        "kind": "Command"
+      },
+      {
+        "apiVersion": "messages.dsh/v1alpha1",
+        "kind": "MessageObserver"
+      },
+      {
+        "apiVersion": "storage.dsh/v1alpha1",
+        "kind": "LocalStorage"
+      }
+    ]
   },
   "permissions": [
     {
@@ -42,7 +40,7 @@
     {
       "name": "storage.local.write",
       "scope": "plugin-private data under ~/.dsh/checkpoints (shadow repos, JSONL index)",
-      "reason": "Shadow git repositories and the turn-to-commit index are the checkpoint store. The workspace worktree itself is snapshotted and restored via git, which has no v0.1 permission name (see proposals gap note)."
+      "reason": "Shadow git repositories and the turn-to-commit index are the checkpoint store. The workspace worktree itself is snapshotted and restored via git, which has no v0.15 permission name (see proposals gap note)."
     }
   ],
   "contributes": {
