@@ -1,0 +1,29 @@
+{
+  "name": "dsh-tui-checkpoints",
+  "version": "0.1.0",
+  "description": "Shadow-git workspace checkpoints for dsh-TUI: snapshot the working tree at every turn boundary, browse and restore file states per turn via /checkpoints.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "dsh.plugin.json"
+  ],
+  "engines": {
+    "node": "^22.19 || >=24"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

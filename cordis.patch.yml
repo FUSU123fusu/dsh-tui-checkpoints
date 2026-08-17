@@ -1,0 +1,9 @@
+# Bundle patch for dsh-tui-checkpoints: insert the plugin as a profile row.
+# `inject` is load-bearing: cordis activates service fibers asynchronously,
+# so a plain row's apply() runs BEFORE `commands` is readable. Host-only
+# seams (`tuiScenes`, `tuiCommandTrees`) stay runtime probes.
+- insert:
+    - id: dsh-tui-checkpoints
+      name: dsh-tui-checkpoints
+      inject:
+        - commands

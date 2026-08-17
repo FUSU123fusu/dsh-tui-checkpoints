@@ -1,0 +1,9 @@
+{
+  "name": "dsh-tui-checkpoints",
+  "displayName": "Checkpoints",
+  "description": "影子 git 工作区快照：每个 turn 边界自动存档，/checkpoints 浏览并恢复到任意一轮的文件状态。",
+  "version": "0.1.0",
+  "entry": "lib/index.js",
+  "command": "checkpoints",
+  "homepage": "https://github.com/FUSU123fusu/dsh-tui-checkpoints"
+}
