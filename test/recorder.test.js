@@ -24,22 +24,27 @@ function makeRecorder(snapshot) {
 }
 
 const ev = (type, turn, seq) => ({ type, seq, time: 0, data: { turn } })
+const main = { id: 'abc-def', header: { id: 'abc-def', delegationDepth: 0 } }
+// TUI-created main sessions carry no delegationDepth field at all.
+const mainNoDepth = { id: 'bare-uuid', header: { id: 'bare-uuid' } }
+const sub = { id: '95e33202-x', header: { id: '95e33202-x', delegationDepth: 1, origin: 'subagent' } }
 
 describe('recorder', () => {
   it('schedules snapshots only for top-level turn boundaries', async () => {
-    const calls = []
     const { recorder, indexPath } = makeRecorder(async () => ({ hash: 'a'.repeat(40), changed: true }))
-    assert.equal(recorder.handle('session-abc', ev('turn/start', 1, 0)), true)
-    assert.equal(recorder.handle('session-abc', ev('turn/end', 1, 9)), true)
-    assert.equal(recorder.handle('session-abc', ev('assistant/chunk', 1, 3)), false)
-    // Subagent sessions (bare uuid) never trigger snapshots.
-    assert.equal(recorder.handle('95e33202-7f66-46c1', ev('turn/start', 1, 0)), false)
+    assert.equal(recorder.handle(main, ev('turn/start', 1, 0)), true)
+    assert.equal(recorder.handle(main, ev('turn/end', 1, 9)), true)
+    assert.equal(recorder.handle(main, ev('assistant/chunk', 1, 3)), false)
+    // Subagent sessions (delegationDepth ≥ 1 / origin subagent) never trigger.
+    assert.equal(recorder.handle(sub, ev('turn/start', 1, 0)), false)
     assert.equal(recorder.handle(undefined, ev('turn/start', 1, 0)), false)
+    // A TUI-style main session without a depth field records fine.
+    assert.equal(recorder.handle(mainNoDepth, ev('turn/start', 9, 0)), true)
     await recorder.drain()
-    assert.equal(calls.length, 0) // fake captured via index, not calls
     const entries = readIndex(indexPath)
-    assert.deepEqual(entries.map((e) => e.kind), ['pre', 'post'])
-    assert.deepEqual(entries.map((e) => e.turn), [1, 1])
+    assert.deepEqual(entries.map((e) => e.kind), ['pre', 'post', 'pre'])
+    assert.deepEqual(entries.map((e) => e.turn), [1, 1, 9])
+    assert.equal(entries[0].session, 'abc-def')
   })
 
   it('serializes snapshots through the queue', async () => {
@@ -52,9 +57,9 @@ describe('recorder', () => {
       active--
       return { hash: 'b'.repeat(40), changed: true }
     })
-    recorder.handle('session-x', ev('turn/start', 1, 0))
-    recorder.handle('session-x', ev('turn/end', 1, 9))
-    recorder.handle('session-x', ev('turn/start', 2, 10))
+    recorder.handle(main, ev('turn/start', 1, 0))
+    recorder.handle(main, ev('turn/end', 1, 9))
+    recorder.handle(main, ev('turn/start', 2, 10))
     await recorder.drain()
     assert.equal(maxActive, 1)
   })
@@ -66,8 +71,8 @@ describe('recorder', () => {
       if (n === 1) throw new Error('git exploded')
       return { hash: 'c'.repeat(40), changed: true }
     })
-    recorder.handle('session-x', ev('turn/start', 1, 0))
-    recorder.handle('session-x', ev('turn/end', 1, 9))
+    recorder.handle(main, ev('turn/start', 1, 0))
+    recorder.handle(main, ev('turn/end', 1, 9))
     await recorder.drain()
     assert.equal(readIndex(indexPath).length, 1)
   })
