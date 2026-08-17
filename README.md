@@ -1,5 +1,7 @@
 # dsh-tui-checkpoints（spike）
 
+> 适用于 [dsh-TUI](https://github.com/ccch1mneyyy/dsh-TUI)（[dshtui.com](https://dshtui.com)）的社区插件。
+
 给 dsh-TUI 补上「真回溯」缺的那一层：**文件改动**。每个 turn 边界把工作区快照进一个**影子 git 仓库**，`/checkpoints` 浏览并按轮恢复文件状态。
 
 > ⚠️ 这是 spike（技术验证版）。对话回溯用内置的双击 Esc `/rewind`；本插件负责文件那一半。恢复后提示你再回溯对话到同一轮——两段式是刻意的，等验证稳定后会作为核心 PR 并入 rewind。
