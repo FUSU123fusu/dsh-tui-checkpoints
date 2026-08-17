@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
-import { createRecorder, listCheckpoints, readIndex } from '../lib/recorder.js'
+import { createRecorder, familyOf, filterEntries, listCheckpoints, readIndex, readLinks } from '../lib/recorder.js'
 
 const cleanups = []
 after(() => {
@@ -108,5 +108,51 @@ describe('baseline', () => {
     const entries = readIndex(indexPath)
     assert.equal(entries.length, 2)
     assert.ok(entries.every((e) => e.turn === 0 && e.kind === 'pre' && e.seq === 0))
+  })
+})
+
+describe('readLinks / familyOf / filterEntries', () => {
+  it('reads fork links, tolerating a torn trailing line', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-cp-links-'))
+    cleanups.push(dir)
+    const linksPath = join(dir, 'links.jsonl')
+    const { writeFileSync, appendFileSync } = await import('node:fs')
+    writeFileSync(linksPath, JSON.stringify({ session: 'child', parent: 'root' }) + '\n')
+    appendFileSync(linksPath, '{"session":"torn')
+    const links = readLinks(linksPath)
+    assert.equal(links.get('child'), 'root')
+    assert.equal(links.size, 1)
+    assert.equal(readLinks('C:/no/such/links.jsonl').size, 0)
+  })
+
+  it('familyOf walks ancestors and descendants in both directions', () => {
+    // root ─┬─ forkA ── forkA2
+    //       └─ forkB        other (unrelated)
+    const links = new Map([
+      ['forkA', 'root'],
+      ['forkA2', 'forkA'],
+      ['forkB', 'root'],
+    ])
+    const family = familyOf(links, 'forkA2')
+    assert.deepEqual([...family].sort(), ['forkA', 'forkA2', 'forkB', 'root'])
+    assert.equal(familyOf(links, undefined), undefined)
+    assert.equal(familyOf(links, ''), undefined)
+    // An unlinked session is its own family.
+    assert.deepEqual([...familyOf(links, 'lonely')], ['lonely'])
+  })
+
+  it('filterEntries keeps the family by default, everything under showAll', () => {
+    const entries = [
+      { hash: 'h1', session: 'root' },
+      { hash: 'h2', session: 'forkA' },
+      { hash: 'h3', session: 'other' },
+      { hash: 'h4' }, // no session tag — cannot be attributed, stays visible
+    ]
+    const links = new Map([['forkA', 'root']])
+    const family = familyOf(links, 'forkA')
+    assert.deepEqual(filterEntries(entries, family, false).map((e) => e.hash), ['h1', 'h2', 'h4'])
+    assert.deepEqual(filterEntries(entries, family, true).map((e) => e.hash), ['h1', 'h2', 'h3', 'h4'])
+    // Unknown session id → no filter.
+    assert.deepEqual(filterEntries(entries, undefined, false).length, 4)
   })
 })
